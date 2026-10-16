@@ -11,11 +11,18 @@ const { pathToFileURL } = require('node:url');
 const mainPath = path.join(__dirname, '..', 'src', 'main.js');
 const clean = (value) => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 
-async function harness(t, convert) {
+async function harness(t, convert, { platform = 'win32', isPackaged = false, toolLocation = 'development' } = {}) {
   const directory = await fs.realpath(await fs.mkdtemp(path.join(tmpdir(), 'ncm-main-test-')));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
-  const tool = path.join(directory, 'fake-ffmpeg.exe');
+  const appDirectory = path.join(directory, 'application');
+  const resourcesPath = path.join(directory, 'runtime-resources');
+  const binaryName = platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  const tool = toolLocation === 'app' ? path.join(appDirectory, 'resources', binaryName)
+    : toolLocation === 'runtime' ? path.join(resourcesPath, binaryName) : path.join(directory, 'fake-ffmpeg.exe');
+  await fs.mkdir(path.dirname(tool), { recursive: true });
   await fs.writeFile(tool, 'Only a presence check; converter is stubbed.');
+  const developmentOverride = isPackaged ? path.join(directory, 'ignored-development-ffmpeg') : tool;
+  if (isPackaged) await fs.writeFile(developmentOverride, 'Packaged apps must ignore development tool overrides.');
   const handlers = new Map();
   const events = [];
   const calls = [];
@@ -54,10 +61,10 @@ async function harness(t, convert) {
   }
   const electron = {
     app: {
-      isPackaged: false,
+      isPackaged,
       setName() {},
       getPath(name) { return path.join(directory, name === 'music' ? 'Music' : 'UserData'); },
-      getAppPath() { return directory; },
+      getAppPath() { return appDirectory; },
       requestSingleInstanceLock() { return true; },
       whenReady() { return Promise.resolve(); },
       on() {},
@@ -66,11 +73,15 @@ async function harness(t, convert) {
     BrowserWindow,
     ipcMain: { handle(name, handler) { assert.ok(!handlers.has(name)); handlers.set(name, handler); } },
     dialog: {
-      async showOpenDialog() { return { canceled: true, filePaths: [] }; },
+      async showOpenDialog(_window, options) { permissions.lastOpenDialog = clean(options); return { canceled: true, filePaths: [] }; },
       showMessageBoxSync() { return 0; },
       showErrorBox(title, message) { readyReject(new Error(title + ': ' + message)); },
     },
     shell: { async openPath() { return ''; } },
+    Menu: {
+      buildFromTemplate(template) { return template; },
+      setApplicationMenu(template) { permissions.applicationMenu = clean(template); },
+    },
     session: { defaultSession: {
       setPermissionRequestHandler(callback) { permissions.request = callback; },
       webRequest: { onBeforeRequest(callback) { permissions.beforeRequest = callback; } },
@@ -81,7 +92,7 @@ async function harness(t, convert) {
   vm.runInNewContext(source, {
     __dirname: path.dirname(mainPath),
     // Independent process/env values keep concurrent test files isolated.
-    process: { platform: 'win32', resourcesPath: path.join(directory, 'resources'), env: { NCM_FFMPEG: tool } },
+    process: { platform, resourcesPath, env: { NCM_FFMPEG: developmentOverride } },
     AbortController,
     console,
     require(name) {
@@ -172,6 +183,25 @@ test('simultaneous additions cannot enqueue the same NCM twice', async (t) => {
   assert.equal(attempts[1].status, 'rejected');
   assert.match(attempts[1].reason.message, /正在处理当前操作/);
   assert.equal(app.latest('queue').items.length, 1);
+});
+
+test('native picker and recursive mixed batches accept ordinary FLAC as well as NCM', async (t) => {
+  const app = await harness(t);
+  const directory = path.join(app.directory, '混合音频');
+  const nested = path.join(directory, '子目录');
+  await fs.mkdir(nested, { recursive: true });
+  await fs.writeFile(path.join(directory, '加密歌曲.ncm'), 'mock NCM');
+  await fs.writeFile(path.join(nested, '原始音频.FLAC'), 'fLaC mock');
+  await fs.writeFile(path.join(nested, '歌词.lrc'), '[00:01.00]not an audio file');
+  const items = await app.invoke('add-paths', [directory]);
+  assert.deepEqual(items.map((item) => item.name).sort(), ['加密歌曲.ncm', '原始音频.FLAC'].sort());
+  await app.invoke('choose-files');
+  assert.deepEqual(app.permissions.lastOpenDialog.filters[0].extensions, ['ncm', 'flac']);
+  const from = app.events.length;
+  await app.invoke('start', app.options);
+  const batch = await app.finished(from);
+  assert.equal(batch.success, 2);
+  assert.deepEqual(app.calls.map((call) => path.basename(call.inputPath)).sort(), ['加密歌曲.ncm', '原始音频.FLAC'].sort());
 });
 
 test('a failed item records a useful error while the following item still succeeds', async (t) => {
@@ -327,4 +357,31 @@ test('IPC accepts only the main window and its local document frame', async (t) 
   const settings = await app.invoke('get-settings');
   assert.equal(settings.bitrate, 320);
   assert.ok(settings.outputDir.startsWith(app.directory));
+});
+
+test('macOS startup installs native app, edit and window menus for standard keyboard actions', async (t) => {
+  const app = await harness(t, undefined, { platform: 'darwin' });
+  assert.deepEqual(app.permissions.applicationMenu.map((entry) => entry.role), ['appMenu', 'editMenu', 'windowMenu']);
+  assert.ok(app.handlers.has('ncm:start'));
+  assert.ok(app.handlers.has('ncm:add-paths'));
+});
+
+test('packaged tool lookup uses native filenames and ignores development overrides', async (t) => {
+  for (const entry of [
+    { platform: 'darwin', toolLocation: 'app', name: 'macOS application resources' },
+    { platform: 'darwin', toolLocation: 'runtime', name: 'macOS runtime resources fallback' },
+    { platform: 'win32', toolLocation: 'app', name: 'Windows application resources' },
+  ]) {
+    await t.test(entry.name, async (subtest) => {
+      const app = await harness(subtest, undefined, { ...entry, isPackaged: true });
+      await app.addFiles(['跨平台测试.ncm']);
+      const from = app.events.length;
+      await app.invoke('start', app.options);
+      const batch = await app.finished(from);
+      assert.equal(batch.success, 1);
+      assert.equal(app.calls[0].options.ffmpegPath, app.tool);
+      assert.equal(path.basename(app.tool), entry.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+      assert.ok(app.events.every((event) => event.channel === 'ncm:event'));
+    });
+  }
 });

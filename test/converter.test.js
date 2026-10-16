@@ -69,7 +69,7 @@ async function sourceFile(t, format, stem = '黄龄,邓典 - 测试音 & [1]') {
     ? ['-c:a', 'flac'] : ['-c:a', 'libmp3lame', '-b:a', '128k'];
   await ffmpeg([
     '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=523.25:sample_rate=48000',
-    '-t', '1.35', ...codec, '-metadata', 'title=音频内原有标题', original,
+    '-t', '1.35', ...codec, '-metadata', 'title=音频内原有标题', '-metadata', 'artist=内嵌测试歌手', '-metadata', 'album=内嵌测试专辑', original,
   ]);
   const metadata = { musicName: '合成测试音（月亮）', artist: [['测试歌手甲', 1], ['测试歌手乙', 2]], album: '无版权测试样本', duration: 1350 };
   const source = ncmFixture(await fs.readFile(original), metadata);
@@ -179,6 +179,88 @@ test('cancellation during decoding or FFmpeg progress publishes no output and pr
       assert.equal(reached, true, 'the requested cancellation phase was reached');
       assert.deepEqual(await outputFiles(context.outputDir), []);
       assert.deepEqual(await fs.readFile(context.inputPath), context.source);
+    });
+  }
+});
+
+
+test('ordinary FLAC converts at all supported bitrates and preserves Chinese tags and source bytes', external, async (t) => {
+  for (const bitrate of [320, 256, 192]) {
+    await t.test(String(bitrate), async (subtest) => {
+      const context = await sourceFile(subtest, 'flac');
+      const inputPath = join(context.directory, '独立中文原音频.FLAC');
+      await fs.rename(context.original, inputPath);
+      const originalBytes = await fs.readFile(inputPath);
+      const originalStat = await fs.stat(inputPath);
+      assert.equal(originalBytes.subarray(0, 4).toString(), 'fLaC');
+      const beforeTags = await ffmpeg(['-loglevel', 'error', '-i', inputPath, '-f', 'ffmetadata', '-']);
+      const expectedTags = beforeTags.stdout.split(/\r?\n/).filter((line) => /^(title|artist|album)=/.test(line));
+      assert.equal(expectedTags.length, 3);
+      const updates = [];
+      const result = await convertFile(inputPath, context.outputDir, {
+        ffmpegPath: FFMPEG, bitrate, onUpdate: (update) => updates.push(update),
+      });
+      assert.equal(basename(result.outputPath), '独立中文原音频.mp3');
+      assert.match(result.message, new RegExp(bitrate + ' kbps.*44.1 kHz'));
+      const decoded = await ffmpeg(['-xerror', '-err_detect', 'explode', '-i', result.outputPath, '-map', '0:a:0', '-f', 'null', '-']);
+      assert.match(decoded.stderr, /44100 Hz/);
+      assert.match(decoded.stderr, new RegExp(bitrate + ' kb/s'));
+      const tags = await ffmpeg(['-loglevel', 'error', '-i', result.outputPath, '-f', 'ffmetadata', '-']);
+      for (const line of expectedTags) assert.ok(tags.stdout.includes(line), 'preserved tag: ' + line);
+      assert.ok(updates.some((update) => update.status === 'decoding' && /FLAC/.test(update.message || '')));
+      assert.deepEqual(await fs.readFile(inputPath), originalBytes);
+      assert.equal((await fs.stat(inputPath)).mtimeMs, originalStat.mtimeMs);
+    });
+  }
+});
+
+test('ordinary FLAC output uses a unique name without overwriting a finished file or the source', external, async (t) => {
+  const context = await sourceFile(t, 'flac');
+  const originalBytes = await fs.readFile(context.original);
+  await fs.mkdir(context.outputDir);
+  const stem = basename(context.original, '.flac');
+  const existingPath = join(context.outputDir, stem + '.mp3');
+  const existing = Buffer.from('existing finished MP3; must not overwrite');
+  await fs.writeFile(existingPath, existing);
+  const result = await convertFile(context.original, context.outputDir, { ffmpegPath: FFMPEG });
+  assert.equal(basename(result.outputPath), stem + ' (2).mp3');
+  assert.deepEqual(await fs.readFile(existingPath), existing);
+  assert.deepEqual(await fs.readFile(context.original), originalBytes);
+  await ffmpeg(['-loglevel', 'error', '-xerror', '-err_detect', 'explode', '-i', result.outputPath, '-f', 'null', '-']);
+});
+
+test('a false FLAC extension or corrupt FLAC frames cannot publish an MP3', external, async (t) => {
+  for (const source of [Buffer.from('ID3this is not a FLAC file'), Buffer.from('fLaCthis has no valid STREAMINFO or audio frames')]) {
+    await t.test(source.subarray(0, 4).toString(), async (subtest) => {
+      const context = await workspace(subtest);
+      const inputPath = join(context.directory, '伪装或损坏.flac');
+      await fs.writeFile(inputPath, source);
+      await assert.rejects(convertFile(inputPath, context.outputDir, { ffmpegPath: FFMPEG }));
+      assert.deepEqual(await outputFiles(context.outputDir), []);
+      assert.deepEqual(await fs.readFile(inputPath), source);
+    });
+  }
+});
+
+test('ordinary FLAC cancellation before reading or during FFmpeg leaves no result and preserves the source', external, async (t) => {
+  for (const phase of ['decoding', 'encoding']) {
+    await t.test(phase, async (subtest) => {
+      const context = await sourceFile(subtest, 'flac');
+      const originalBytes = await fs.readFile(context.original);
+      const controller = new AbortController();
+      let reached = false;
+      await assert.rejects(convertFile(context.original, context.outputDir, {
+        ffmpegPath: FFMPEG, signal: controller.signal,
+        onUpdate(update) {
+          if (reached || update.status !== phase) return;
+          reached = true;
+          if (phase === 'encoding') setImmediate(() => controller.abort());
+          else controller.abort();
+        },
+      }), { name: 'AbortError' });
+      assert.equal(reached, true);
+      assert.deepEqual(await outputFiles(context.outputDir), []);
+      assert.deepEqual(await fs.readFile(context.original), originalBytes);
     });
   }
 });
