@@ -76,3 +76,26 @@ does not represent that the guide is a complete Corresponding Source archive.
 The project's own JavaScript, HTML and CSS are MIT licensed; third-party
 components retain their own licenses. `BUILD-MANIFEST.json` records the exact
 upstream downloads and SHA-256 checksums used in each build.
+
+## Mac FFmpeg 组件
+
+### Apple Silicon FFmpeg：Martin Riedl 9.0.2
+
+- 构建者网站：https://ffmpeg.martin-riedl.de/
+- 固定二进制：https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip
+- 维护方校验：https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip.sha256
+- 同构建的版本与配置：https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/versions.txt
+- FFmpeg 源码修订：https://github.com/FFmpeg/FFmpeg/commit/946fcce07b
+- 构建者公开的脚本项目：https://git.martin-riedl.de/ffmpeg/build-script
+- 版本配置包含 `--enable-gpl --enable-version3` 和 `--enable-libmp3lame`，没有 `--enable-nonfree`。配置原文以 `licenses/ffmpeg/README.txt` 保存，另附 `SOURCE.txt` 与完整 `COPYING.GPLv3`。本项目没有独立核实该次构建脚本的精确提交、所有补丁及完整依赖源码集合。
+
+### Intel Mac FFmpeg：6.1.1-tessus，经 ffmpeg-static b6.1.1 分发
+
+- 固定分发记录：https://github.com/eugeneware/ffmpeg-static/releases/tag/b6.1.1
+- 原始构建者：https://evermeet.cx/ffmpeg/
+- 分发项目的准确下载脚本：https://github.com/eugeneware/ffmpeg-static/blob/b6.1.1/download-binaries/index.sh
+- FFmpeg 6.1.1 源码入口：https://github.com/FFmpeg/FFmpeg/tree/n6.1.1
+- 程序中的编译版本字符串为 `6.1.1-tessus`，编译配置包含 `--enable-gpl --enable-version3`，没有 `--enable-nonfree`。这项记录来自静态二进制检查，不声称已在 Intel Mac 上实测。
+- 分发项目的原始 `darwin-x64.README` 实际描述另一个 8.0 版本，按原文保留为 `licenses/ffmpeg/README.txt` 并在 `SOURCE.txt` 标明此差异。`LICENSE.md` 是原始许可摘要，`COPYING.GPLv3` 是另附的完整通用许可原文。未声称原构建者的全部补丁、构建脚本与依赖源码已被还原。
+
+FFmpeg 作为独立可执行程序由本地子进程调用。构建来源和许可证不因本项目采用 MIT 而改变。各平台实际下载与重签名前后哈希见 `BUILD-MANIFEST.json`，进一步来源信息见 `docs/打包说明.md` 及 https://ffmpeg.org/legal.html 。本项目保留已取得的原始许可与来源材料，不把这些指引称为完整 Corresponding Source 归档。
