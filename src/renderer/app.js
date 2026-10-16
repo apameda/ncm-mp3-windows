@@ -119,7 +119,7 @@
     const caption = status === 'failed' ? (item.error || '转换失败，请重试。')
       : status === 'success' ? (item.message || 'MP3 已保存')
       : status === 'cancelled' ? '可点击「重试未完成」继续转换'
-      : (item.message || 'NCM 音频文件');
+      : (item.message || (/\.flac$/i.test(item.name || item.path || '') ? 'FLAC 音频 · 转换为 MP3' : 'NCM 音频文件'));
     row.caption.textContent = caption;
     row.caption.title = status === 'success' && item.outputPath ? `${caption}\n${item.outputPath}` : caption;
     row.progressText.textContent = status === 'pending' ? '—' : `${Math.floor(progress)}%`;
@@ -198,7 +198,7 @@
       elements['overall-track'].setAttribute('aria-valuenow', String(percentage));
     } else {
       elements['batch-title'].textContent = hasItems ? `已添加 ${state.items.length} 个文件` : '准备好，开始听音乐';
-      elements['batch-detail'].textContent = hasItems ? `等待转换 ${counts.ready} 个${counts.success ? ` · 已完成 ${counts.success} 个` : ''}${counts.failed ? ` · 失败 ${counts.failed} 个` : ''}` : '添加 NCM 文件后，点击「开始转换」。';
+      elements['batch-detail'].textContent = hasItems ? `等待转换 ${counts.ready} 个${counts.success ? ` · 已完成 ${counts.success} 个` : ''}${counts.failed ? ` · 失败 ${counts.failed} 个` : ''}` : '添加 NCM 或 FLAC 文件后，点击「开始转换」。';
       elements['batch-percentage'].textContent = '';
     }
   }
@@ -213,7 +213,7 @@
         : kind === 'folder' ? await api.chooseFolder() : await api.addPaths(paths);
       updateQueue(items);
       const added = state.items.length - previousCount;
-      if (added > 0) { state.batch = null; showToast(`已添加 ${added} 个 NCM 文件。`); }
+      if (added > 0) { state.batch = null; showToast(`已添加 ${added} 个音乐文件。`); }
     } catch (error) { showToast(errorText(error)); }
     finally { state.busy = false; renderSummary(); }
   }
@@ -307,7 +307,7 @@
     try {
       const paths = api.getDropPaths(Array.from(event.dataTransfer?.files || []));
       if (paths.length) await addFiles('paths', paths);
-      else showToast('请拖入本机的 NCM 文件或文件夹。');
+      else showToast('请拖入本机的 NCM、FLAC 文件或文件夹。');
     } catch (error) { showToast(errorText(error)); }
   });
   window.addEventListener('blur', () => { dragDepth = 0; elements['drop-overlay'].hidden = true; });

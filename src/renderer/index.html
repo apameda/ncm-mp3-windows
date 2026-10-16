@@ -27,7 +27,7 @@
   <div class="app-shell">
     <header class="app-header">
       <div class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
-      <div class="brand-copy"><h1>NCM 批量转 MP3</h1><p>让收藏的音乐，随处可听。</p></div>
+      <div class="brand-copy"><h1>NCM 批量转 MP3</h1><p>让收藏的音乐，随处可听。也可直接转换 FLAC。</p></div>
       <div class="local-badge"><svg class="icon"><use href="#icon-shield"/></svg><span>本地处理 · 保留原文件</span></div>
     </header>
 
@@ -51,9 +51,9 @@
               <div class="art-file art-file-front"><svg class="icon"><use href="#icon-music"/></svg><span>NCM</span></div>
               <span class="art-spark spark-one"></span><span class="art-spark spark-two"></span>
             </div>
-            <h3>把音乐拖到这里</h3>
-            <p>支持多个 NCM 文件，或整个文件夹</p>
-            <button class="button button-empty" id="empty-add-files">选择 NCM 文件<svg class="icon"><use href="#icon-arrow"/></svg></button>
+            <h3>拖入 NCM 或 FLAC</h3>
+            <p>支持多个音乐文件，或整个文件夹</p>
+            <button class="button button-empty" id="empty-add-files">选择 NCM / FLAC 文件<svg class="icon"><use href="#icon-arrow"/></svg></button>
             <span class="empty-note">自动查找子文件夹 · 重复文件自动去重</span>
           </div>
           <div class="file-table" id="file-table" hidden>
@@ -61,7 +61,7 @@
             <div class="file-list" id="file-list" role="list" aria-label="待转换的音乐文件"></div>
             <div class="drop-hint" id="drop-hint">还可以继续拖入文件或文件夹</div>
           </div>
-          <div class="drop-overlay" id="drop-overlay" hidden><div class="drop-overlay-content"><svg class="icon"><use href="#icon-add"/></svg><strong>松开以添加音乐</strong><span>文件夹中的 NCM 也会一起加入</span></div></div>
+          <div class="drop-overlay" id="drop-overlay" hidden><div class="drop-overlay-content"><svg class="icon"><use href="#icon-add"/></svg><strong>松开以添加音乐</strong><span>文件夹中的 NCM 和 FLAC 也会一起加入</span></div></div>
         </div>
       </section>
 
@@ -71,11 +71,11 @@
           <div class="output-control"><svg class="icon"><use href="#icon-folder"/></svg><input id="output-dir" type="text" value="正在读取默认目录…" readonly aria-label="输出文件夹"><button class="button button-small button-choose" id="choose-output">更改</button></div>
         </div>
         <div class="setting-quality"><label class="setting-label" for="bitrate">MP3 音质</label><select id="bitrate" aria-describedby="quality-note"><option value="320">320 kbps · 高品质</option><option value="256">256 kbps · 标准品质</option><option value="192">192 kbps · 更小体积</option></select></div>
-        <p class="quality-note" id="quality-note"><svg class="icon"><use href="#icon-info"/></svg><span>原音频为 MP3 时直接还原，保留原音质；所选音质仅用于 FLAC 转码。</span></p>
+        <p class="quality-note" id="quality-note"><svg class="icon"><use href="#icon-info"/></svg><span>也可直接添加 FLAC 转为 MP3；NCM 内原音频为 MP3 时直接还原，所选音质用于 FLAC 转码。</span></p>
       </section>
 
       <section class="batch-panel" aria-label="转换进度">
-        <div class="batch-info"><div class="batch-title-line"><strong id="batch-title">准备好，开始听音乐</strong><span id="batch-percentage"></span></div><div class="overall-track" id="overall-track" role="progressbar" aria-label="整体转换进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><div id="overall-progress"></div></div><p id="batch-detail" aria-live="polite">添加 NCM 文件后，点击「开始转换」。</p></div>
+        <div class="batch-info"><div class="batch-title-line"><strong id="batch-title">准备好，开始听音乐</strong><span id="batch-percentage"></span></div><div class="overall-track" id="overall-track" role="progressbar" aria-label="整体转换进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><div id="overall-progress"></div></div><p id="batch-detail" aria-live="polite">添加 NCM 或 FLAC 文件后，点击「开始转换」。</p></div>
         <div class="batch-actions"><button class="button button-outline button-open" id="open-output"><svg class="icon"><use href="#icon-folder"/></svg>打开输出文件夹</button><button class="button button-cancel" id="cancel" hidden><span class="stop-square"></span>取消转换</button><button class="button button-primary" id="start" disabled>开始转换<svg class="icon"><use href="#icon-arrow"/></svg></button></div>
       </section>
     </main>
