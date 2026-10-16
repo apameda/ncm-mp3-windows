@@ -1,11 +1,13 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, shell, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, session, Menu } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const { convertFile } = require('./converter');
+const extensions = ['ncm', 'flac'];
+const isSupported = name => extensions.includes(path.extname(name).slice(1).toLowerCase());
 
 app.setName('NCM批量转MP3');
 let window;
@@ -35,15 +37,18 @@ function userError(error) {
 }
 
 async function findFfmpeg() {
+  const binaryName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
   const choices = [
-    path.join(app.getAppPath(), 'resources', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
-    path.join(process.resourcesPath, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
+    path.join(app.getAppPath(), 'resources', binaryName),
+    path.join(process.resourcesPath, binaryName),
   ];
   if (!app.isPackaged && process.env.NCM_FFMPEG) choices.unshift(process.env.NCM_FFMPEG);
   for (const candidate of choices) {
     try { if ((await fs.stat(candidate)).isFile()) return candidate; } catch {}
   }
-  throw new Error('软件中的转码工具缺失。请重新完整解压下载的 ZIP，不要只复制 EXE。');
+  throw new Error(process.platform === 'darwin'
+    ? '软件中的转码工具缺失。请重新完整解压下载的 ZIP，并保留完整的 .app 应用包。'
+    : '软件中的转码工具缺失。请重新完整解压下载的 ZIP，不要只复制 EXE。');
 }
 
 async function loadSettings() {
@@ -88,11 +93,11 @@ async function addPaths(paths) {
       try { entries = await fs.readdir(real, { withFileTypes: true }); } catch { ignored++; return; }
       for (const entry of entries) {
         if (entry.isSymbolicLink()) continue;
-        if (entry.isDirectory() || /\.ncm$/i.test(entry.name)) await walk(path.join(real, entry.name));
+        if (entry.isDirectory() || isSupported(entry.name)) await walk(path.join(real, entry.name));
       }
       return;
     }
-    if (!stat.isFile() || !/\.ncm$/i.test(real)) return;
+    if (!stat.isFile() || !isSupported(real)) return;
     const key = keyFor(real);
     if (existing.has(key)) return;
     existing.add(key);
@@ -103,7 +108,7 @@ async function addPaths(paths) {
   try { for (const candidate of paths) await walk(candidate); }
   finally { scanning = false; sendQueue(); }
   if (ignored) send({ type: 'notice', message: `已跳过 ${ignored} 个无法读取的文件或文件夹。` });
-  else if (!added) send({ type: 'notice', message: '没有发现新的 NCM 文件，重复文件会自动跳过。' });
+  else if (!added) send({ type: 'notice', message: '没有发现新的 NCM 或 FLAC 文件，重复文件会自动跳过。' });
   return queue;
 }
 
@@ -163,7 +168,7 @@ function installHandlers() {
   handle('get-settings', () => ({ ...settings }));
   handle('choose-files', async () => {
     ensureIdle();
-    const result = await dialog.showOpenDialog(window, { title: '选择 NCM 文件', properties: ['openFile', 'multiSelections'], filters: [{ name: 'NCM 音乐文件', extensions: ['ncm'] }] });
+    const result = await dialog.showOpenDialog(window, { title: '选择 NCM 或 FLAC 文件', properties: ['openFile', 'multiSelections'], filters: [{ name: 'NCM / FLAC 音乐文件', extensions }] });
     return result.canceled ? queue : addPaths(result.filePaths);
   });
   handle('choose-folder', async () => {
@@ -199,7 +204,7 @@ function installHandlers() {
     try {
     if (!options || typeof options.outputDir !== 'string' || !path.isAbsolute(options.outputDir) || ![192, 256, 320].includes(options.bitrate)) throw new Error('请先选择保存位置和音质。');
     const items = queue.filter(item => ['pending', 'failed', 'cancelled'].includes(item.status));
-    if (!items.length) throw new Error('请先添加需要转换的 NCM 文件。');
+    if (!items.length) throw new Error('请先添加需要转换的 NCM 或 FLAC 文件。');
     const ffmpegPath = await findFfmpeg();
     checkStartup();
     await fs.mkdir(options.outputDir, { recursive: true });
@@ -254,6 +259,9 @@ else {
     await loadSettings();
     session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
     session.defaultSession.webRequest.onBeforeRequest((details, callback) => callback({ cancel: /^(https?|wss?|ftp):/i.test(details.url) }));
+    if (process.platform === 'darwin') {
+      Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]));
+    }
     installHandlers(); createWindow();
   }).catch(error => { dialog.showErrorBox('软件启动失败', userError(error)); app.quit(); });
   app.on('window-all-closed', () => app.quit());

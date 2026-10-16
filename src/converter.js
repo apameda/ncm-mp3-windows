@@ -90,6 +90,25 @@ async function publishUnique(encoded, outputDir, stem) {
   throw new Error('同名文件过多，请更换输出文件夹。');
 }
 
+async function inspectFlac(inputPath, signal) {
+  checkCancelled(signal);
+  const input = await fs.open(inputPath, 'r');
+  try {
+    if (!(await input.stat()).isFile()) throw new Error('请选择 FLAC 文件，不能直接转换文件夹。');
+    const magic = Buffer.alloc(4);
+    const { bytesRead } = await input.read(magic, 0, 4, 0);
+    checkCancelled(signal);
+    if (bytesRead !== 4 || !magic.equals(Buffer.from('fLaC'))) {
+      const error = new Error('FLAC 文件头不正确，这不是有效的原始 FLAC 音频；请勿只修改文件后缀。');
+      error.code = 'ERR_FLAC_INVALID';
+      throw error;
+    }
+    return { format: 'flac', metadata: { title: '', artist: '', album: '', duration: null }, warnings: [] };
+  } finally {
+    await input.close();
+  }
+}
+
 async function convertFile(inputPath, outputDir, { ffmpegPath, bitrate = 320, signal, onUpdate = () => {} } = {}) {
   if (![192, 256, 320].includes(bitrate)) throw new Error('请选择支持的 MP3 音质。');
   if (!ffmpegPath) throw new Error('找不到转码工具。');
@@ -98,15 +117,16 @@ async function convertFile(inputPath, outputDir, { ffmpegPath, bitrate = 320, si
   const restored = path.join(temporary, 'source.audio');
   const encoded = path.join(temporary, 'converted.mp3');
   try {
-    onUpdate({ status: 'decoding', progress: 0, message: '正在读取 NCM' });
-    const decoded = await decodeNcm(inputPath, restored, {
-      signal,
-      onProgress: (progress) => onUpdate({ status: 'decoding', progress: progress * 0.3 }),
+    const directFlac = path.extname(inputPath).toLowerCase() === '.flac';
+    onUpdate({ status: 'decoding', progress: 0, message: directFlac ? '正在读取 FLAC' : '正在读取 NCM' });
+    const decoded = directFlac ? await inspectFlac(inputPath, signal) : await decodeNcm(inputPath, restored, {
+      signal, onProgress: (progress) => onUpdate({ status: 'decoding', progress: progress * 0.3 }),
     });
+    const audioInput = directFlac ? inputPath : restored;
     checkCancelled(signal);
     const message = decoded.format === 'mp3' ? '原音频为 MP3，保留原音质' : `正在转换为 ${bitrate} kbps MP3`;
     onUpdate({ status: 'encoding', progress: 30, message });
-    const args = ['-xerror', '-i', restored, '-map', '0:a:0', '-map_metadata', '0'];
+    const args = ['-xerror', '-i', audioInput, '-map', '0:a:0', '-map_metadata', '0'];
     if (decoded.format === 'mp3') args.push('-c:a', 'copy');
     else args.push('-c:a', 'libmp3lame', '-b:a', bitrate + 'k', '-ar', '44100');
     args.push('-id3v2_version', '3');
