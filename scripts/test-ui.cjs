@@ -35,6 +35,49 @@ function browserPath() {
   return candidates.find(candidate => candidate && fs.existsSync(candidate));
 }
 
+async function checkFlacUi(page, apiName) {
+  assert.match(await page.locator('.brand-copy p').innerText(), /也可直接转换 FLAC/);
+  assert.match(await page.locator('#empty-add-files').innerText(), /FLAC/);
+  assert.match(await page.locator('#drop-overlay').innerText(), /FLAC/);
+  await page.evaluate(apiName => {
+    const api = window[apiName];
+    const flac = { id: 'direct-flac', name: '原创合成测试音.FLAC', path: '/mock/原创合成测试音.FLAC', size: 43000, status: 'pending', progress: 0, hasKey: false };
+    api.chooseFiles = async () => { window.mockEmit({ type: 'queue', items: [flac] }); return [flac]; };
+    api.getDropPaths = files => files.map(file => '/mock/' + file.name);
+    api.addPaths = async paths => {
+      window.mockAddedPaths = paths;
+      const item = { ...flac, id: 'drop-flac', name: '拖放样本.flac', path: paths[0] };
+      window.mockEmit({ type: 'queue', items: [item] });
+      return [item];
+    };
+  }, apiName);
+  await page.locator('#empty-add-files').click();
+  assert.equal(await page.locator('.file-name').innerText(), '原创合成测试音.FLAC');
+  assert.equal(await page.locator('.file-caption').innerText(), 'FLAC 音频 · 转换为 MP3');
+  if (apiName === 'qqmp3') {
+    assert.ok(await page.locator('.key-button').isDisabled(), 'Ordinary FLAC does not require a song key');
+    assert.equal(await page.locator('.key-button').innerText(), '无需密钥');
+  }
+  await page.evaluate(() => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['synthetic'], '拖放样本.flac', { type: 'audio/flac' }));
+    document.getElementById('drop-area').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  });
+  await page.waitForFunction(() => document.querySelector('.file-name')?.textContent === '拖放样本.flac');
+  assert.deepEqual(await page.evaluate(() => window.mockAddedPaths), ['/mock/拖放样本.flac']);
+  await page.locator('#start').click();
+  assert.equal((await page.evaluate(() => window.lastStart)).bitrate, 320);
+  assert.ok(await page.locator('#bitrate').isDisabled());
+  await page.evaluate(() => {
+    window.mockEmit({ type: 'item', item: { id: 'drop-flac', name: '拖放样本.flac', path: '/mock/拖放样本.flac', size: 43000, status: 'success', progress: 100, message: '320 kbps · 44.1 kHz', hasKey: false } });
+    window.mockEmit({ type: 'batch', running: false, total: 1, completed: 1, success: 1, failed: 0, cancelled: 0 });
+  });
+  assert.match(await page.locator('#batch-detail').innerText(), /成功 1 个/);
+  await page.setViewportSize({ width: 820, height: 620 });
+  assert.deepEqual(await page.evaluate(() => ({ x: document.documentElement.scrollWidth > innerWidth, y: document.documentElement.scrollHeight > innerHeight })), { x: false, y: false });
+  console.log('PASS FLAC-only mock UI: selection, drag/drop, uppercase extension label, 320 kbps settings, completion display, compact layout' + (apiName === 'qqmp3' ? ', no irrelevant song-key action.' : '.'));
+}
+
 (async () => {
   const browser = await chromium.launch({ executablePath: browserPath(), headless: true });
   try {
@@ -83,6 +126,12 @@ function browserPath() {
     });
 
     await page.goto(pathToFileURL(path.join(__dirname, '../src/renderer/index.html')).href);
+    if (process.argv.includes('--flac-only')) {
+      await checkFlacUi(page, 'ncm');
+      assert.deepEqual(errors, [], 'No renderer errors');
+      assert.deepEqual(network, [], 'No external requests');
+      return;
+    }
     await page.getByRole('button', { name: '添加文件', exact: true }).click();
     assert.equal(await page.locator('.file-row').count(), 4, 'Files enter the queue');
     await page.getByRole('button', { name: '开始转换', exact: true }).click();
