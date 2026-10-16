@@ -1,0 +1,15 @@
+{
+  "name": "ncm-mp3-windows",
+  "productName": "NCM批量转MP3",
+  "version": "1.0.0",
+  "description": "本地离线批量将 NCM 转换为 MP3 的 Windows 绿色版",
+  "main": "src/main.js",
+  "private": true,
+  "license": "MIT",
+  "devDependencies": { "electron": "44.7.2" },
+  "scripts": {
+    "test": "node --test test/ncm.test.js test/converter.test.js test/main.test.js",
+    "package:windows": "node scripts/package-windows.mjs",
+    "start": "electron ."
+  }
+}
